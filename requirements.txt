@@ -4,5 +4,5 @@ numpy
 plotly
 joblib
 tensorflow-cpu
-scikit-learn
+scikit-learn==1.6.1
 statsmodels
