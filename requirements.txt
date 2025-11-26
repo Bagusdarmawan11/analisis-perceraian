@@ -3,4 +3,6 @@ pandas
 numpy
 plotly
 joblib
-tensorflow
+tensorflow-cpu
+scikit-learn
+statsmodels
