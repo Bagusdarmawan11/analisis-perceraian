@@ -10,6 +10,15 @@ import tensorflow as tf
 
 warnings.filterwarnings("ignore")
 
+# ----------------------------------------------------------------------
+# OPSIONAL: cek apakah statsmodels tersedia (untuk trendline di scatter)
+# ----------------------------------------------------------------------
+try:
+    import statsmodels.api as sm  # noqa: F401
+    HAS_STATSMODELS = True
+except ImportError:
+    HAS_STATSMODELS = False
+
 # ======================================================================
 # KONFIGURASI HALAMAN
 # ======================================================================
@@ -19,7 +28,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# Sedikit CSS supaya tampilan lebih modern
+# Sedikit CSS supaya tampilan lebih modern & responsif
 st.markdown(
     """
     <style>
@@ -35,6 +44,13 @@ st.markdown(
     .block-container {
         padding-top: 1.5rem;
         padding-bottom: 1.5rem;
+    }
+    .stMetric {
+        text-align: center;
+    }
+    [data-testid="stSidebar"] {
+        min-width: 260px;
+        max-width: 260px;
     }
     </style>
     """,
@@ -52,10 +68,12 @@ DATA_FILE = None
 if os.path.isdir(DATA_DIR):
     csv_list = [f for f in os.listdir(DATA_DIR) if f.lower().endswith(".csv")]
     if csv_list:
+        # ambil CSV pertama di folder data
         DATA_FILE = os.path.join(DATA_DIR, csv_list[0])
 
 PREPROCESSOR_PATH = os.path.join(MODELS_DIR, "preprocessor.joblib")
 MODEL_PATH = os.path.join(MODELS_DIR, "model_perceraian.h5")
+
 
 # ======================================================================
 # FUNGSI LOAD DATA & MODEL (CACHE)
@@ -167,6 +185,7 @@ max_future_year = max_year + 6  # boleh prediksi beberapa tahun ke depan
 
 region_list = sorted(df[region_col].dropna().unique().tolist())
 
+
 # ======================================================================
 # FUNGSI PREDIKSI
 # ======================================================================
@@ -250,12 +269,14 @@ with tab_pred:
             default_val = float(
                 default_values_region.get(col, default_values_global.get(col, (col_min + col_max) / 2))
             )
+            step_val = (col_max - col_min) / 100 if col_max != col_min else 1.0
+
             faktor_values[col] = st.slider(
                 label=col,
                 min_value=float(col_min),
                 max_value=float(col_max),
                 value=float(default_val),
-                step=float((col_max - col_min) / 100 if col_max != col_min else 1.0),
+                step=float(step_val),
             )
 
         st.markdown("")
@@ -397,6 +418,12 @@ with tab_faktor:
     if not factor_cols:
         st.info("Tidak ada kolom faktor numerik selain tahun. Cek lagi dataset kamu.")
     else:
+        if not HAS_STATSMODELS:
+            st.info(
+                "Garis trendline membutuhkan paket `statsmodels`. "
+                "Pastikan sudah ditambahkan di `requirements.txt` jika ingin menampilkannya."
+            )
+
         col_f1, col_f2 = st.columns(2)
 
         with col_f1:
@@ -427,11 +454,14 @@ with tab_faktor:
             if len(df_sample) > 1000:
                 df_sample = df_sample.sample(1000, random_state=42)
 
+            # gunakan trendline hanya jika statsmodels tersedia
+            trendline_opt = "ols" if HAS_STATSMODELS else None
+
             fig_scatter = px.scatter(
                 df_sample,
                 x=selected_factor,
                 y=target_col,
-                trendline="ols",
+                trendline=trendline_opt,
                 title=f"{selected_factor} vs {target_col}",
             )
             fig_scatter.update_layout(height=420)
@@ -445,15 +475,36 @@ with tab_data:
 
     st.write(
         "Tabel di bawah adalah data yang digunakan oleh model. "
-        "Kamu bisa scroll, filter, atau download."
+        "Kamu bisa filter berdasarkan kabupaten/kota dan tahun, lalu download."
     )
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    col1, col2 = st.columns(2)
 
-    csv = df.to_csv(index=False).encode("utf-8")
+    with col1:
+        region_filter = st.selectbox(
+            "Filter Kabupaten/Kota",
+            options=["(Semua)"] + region_list,
+            index=0,
+        )
+
+    with col2:
+        years_available = sorted(df[year_col].unique())
+        year_filter = st.multiselect(
+            "Filter Tahun",
+            options=years_available,
+            default=years_available,
+        )
+
+    df_view = df[df[year_col].isin(year_filter)]
+    if region_filter != "(Semua)":
+        df_view = df_view[df_view[region_col] == region_filter]
+
+    st.dataframe(df_view, use_container_width=True, hide_index=True)
+
+    csv = df_view.to_csv(index=False).encode("utf-8")
     st.download_button(
-        "⬇️ Download CSV",
+        "⬇️ Download Data yang Difilter",
         data=csv,
-        file_name="data_perceraian_jabar.csv",
+        file_name="data_perceraian_jabar_filtered.csv",
         mime="text/csv",
     )
